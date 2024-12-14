@@ -1,18 +1,57 @@
 use anyhow::{anyhow, Error};
+use clap::{Parser, ValueEnum};
 use fehler::throws;
 use serde_json::from_str;
 use solana_sdk::{signature::Keypair, signer::keypair::read_keypair_file};
-use std::path::PathBuf;
-use structopt::StructOpt;
+use std::{fmt::Debug, path::PathBuf};
 
-#[derive(Debug, Clone, StructOpt)]
-#[structopt(name = "transact", about = "Making transactions to the GFX Swap")]
-struct Opt {
-    #[structopt(long, short)]
+#[derive(Debug, Clone, Parser)]
+#[clap(name = "sbjc", about = "Convert between json format and base58 format")]
+struct Cli {
+    #[arg(long, short)]
     json: Option<String>,
 
-    #[structopt(long, short)]
+    #[arg(long, short)]
     base58: Option<String>,
+
+    #[arg(long, short, default_value = "naked")]
+    output: OutputFormat,
+}
+
+#[derive(Debug, Clone, Copy, Parser, ValueEnum)]
+pub enum OutputFormat {
+    Naked,
+    JSON,
+}
+
+trait Output {
+    fn output(&self, format: OutputFormat);
+}
+
+impl<'a> Output for &'a [u8] {
+    fn output(&self, format: OutputFormat) {
+        match format {
+            OutputFormat::Naked => {
+                println!("{:?}", self);
+            }
+            OutputFormat::JSON => {
+                println!(r#"{{"value": {:?}}}"#, self);
+            }
+        }
+    }
+}
+
+impl<'a> Output for &'a str {
+    fn output(&self, format: OutputFormat) {
+        match format {
+            OutputFormat::Naked => {
+                println!("{}", self);
+            }
+            OutputFormat::JSON => {
+                println!(r#"{{"value": {:?}}}"#, self);
+            }
+        }
+    }
 }
 
 #[throws(Error)]
@@ -32,25 +71,28 @@ pub fn load_keypair(src: &str) -> Keypair {
 
 #[throws(Error)]
 fn main() {
-    let opt = Opt::from_args();
+    let cli = Cli::parse();
 
-    if opt.json.is_none() && opt.base58.is_none() {
+    if cli.json.is_none() && cli.base58.is_none() {
         eprintln!("Either --json or --base58 should be specified");
     }
 
-    if let Some(json) = opt.json {
+    if let Some(json) = cli.json {
         if let Ok(wallet) = load_keypair(&json) {
-            println!("{}", wallet.to_base58_string());
+            wallet.to_base58_string().as_str().output(cli.output);
             return;
         }
 
         let array: Vec<_> = from_str(&json)?;
-        println!("{}", bs58::encode(&array).into_string());
+        bs58::encode(&array)
+            .into_string()
+            .as_str()
+            .output(cli.output);
         return;
     }
 
-    if let Some(b58) = opt.base58 {
-        println!("{:?}", bs58::decode(&b58).into_vec()?);
+    if let Some(b58) = cli.base58 {
+        bs58::decode(&b58).into_vec()?.as_slice().output(cli.output);
         return;
     }
 }
